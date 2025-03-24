@@ -1,0 +1,2 @@
+# WhartonAI
+WhartonAI-Thon project
