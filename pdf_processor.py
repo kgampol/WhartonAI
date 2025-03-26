@@ -24,6 +24,7 @@ import os
 import time
 from dotenv import load_dotenv
 from typing import Optional, Tuple, Any, Callable, Dict, List
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -166,138 +167,197 @@ class PDFProcessor:
             print(f"Error generating summary: {str(e)}")
             return None
 
-    def generate_questions(self, text: str, num_questions: int = 5) -> Optional[Dict]:
+    def _split_text(self, text: str, chunk_size: int = 2000) -> List[str]:
         """
-        Generate multiple-choice questions from the text.
+        Split text into chunks of approximately equal size.
         
         Args:
-            text (str): The text to generate questions from
-            num_questions (int): Number of questions to generate
+            text (str): The text to split
+            chunk_size (int): Target size for each chunk
             
         Returns:
-            Optional[Dict]: Dictionary containing questions and answers, or None if generation fails
+            List[str]: List of text chunks
+        """
+        # Split text into sentences
+        sentences = text.split('.')
+        chunks = []
+        current_chunk = []
+        current_size = 0
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+                
+            sentence_size = len(sentence)
+            
+            # If adding this sentence would exceed chunk size, start a new chunk
+            if current_size + sentence_size > chunk_size and current_chunk:
+                chunks.append('. '.join(current_chunk))
+                current_chunk = []
+                current_size = 0
+            
+            current_chunk.append(sentence)
+            current_size += sentence_size
+        
+        # Add the last chunk if it exists
+        if current_chunk:
+            chunks.append('. '.join(current_chunk))
+        
+        return chunks
+
+    def generate_questions(self, text: str) -> Optional[Dict]:
+        """
+        Generate multiple-choice questions from the text using GPT-3.5 Turbo.
+        
+        Args:
+            text (str): The text content to generate questions from
+            
+        Returns:
+            Optional[Dict]: Dictionary containing generated questions or None if generation fails
         """
         try:
-            # Truncate text if too long
-            if len(text) > 3000:
-                text = text[:3000] + "..."
+            # Split text into chunks for better context management
+            chunks = self._split_text(text)
+            all_questions = []
             
-            # System prompt for question generation
-            system_prompt = '''You are an expert at creating multiple-choice questions.
-            Follow these rules:
-            1. Each question must have exactly 4 options
-            2. The correct answer must be one of the options
-            3. Questions should be clear and unambiguous
-            4. Options should be distinct and plausible
-            5. The correct_answer field must be the 0-based index of the correct option
-            6. Each question must test understanding, not just memorization
-            7. Avoid obvious patterns in correct answer positions
-            8. Make sure all fields are properly formatted strings
-            9. The JSON structure must be exactly as shown in the example
+            for chunk in chunks:
+                # Generate questions for this chunk
+                prompt = f"""
+                Based on the following lecture content, generate 2-3 multiple-choice questions.
+                Return ONLY a JSON array of questions, with no additional text or explanation.
+                
+                Each question should be a JSON object with these exact fields:
+                {{
+                    "question": "The question text",
+                    "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+                    "correct_answer": 0,  // Index of correct answer (0-3)
+                    "key_concepts": ["Concept 1", "Concept 2"],
+                    "citations": ["Citation 1", "Citation 2"]
+                }}
+                
+                Lecture content:
+                {chunk}
+                
+                Requirements:
+                1. Return ONLY the JSON array, no other text
+                2. Each question must have exactly 4 options
+                3. correct_answer must be an integer 0-3
+                4. Test understanding of key concepts
+                """
+                
+                response = self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a JSON-only response assistant. Return only valid JSON arrays containing question objects."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                
+                try:
+                    # Get the response text
+                    questions_text = response.choices[0].message.content.strip()
+                    
+                    # Try to parse the entire response as JSON first
+                    try:
+                        chunk_questions = json.loads(questions_text)
+                    except json.JSONDecodeError:
+                        # If that fails, try to extract JSON array using regex
+                        questions_match = re.search(r'\[.*\]', questions_text, re.DOTALL)
+                        if questions_match:
+                            questions_json = questions_match.group(0)
+                            chunk_questions = json.loads(questions_json)
+                        else:
+                            print(f"Could not find valid JSON array in response: {questions_text[:100]}...")
+                            continue
+                    
+                    # Validate each question
+                    valid_questions = []
+                    for q in chunk_questions:
+                        if not isinstance(q, dict):
+                            continue
+                            
+                        # Check required fields
+                        required_fields = ['question', 'options', 'correct_answer', 'key_concepts', 'citations']
+                        if not all(field in q for field in required_fields):
+                            continue
+                            
+                        # Validate options
+                        if not isinstance(q['options'], list) or len(q['options']) != 4:
+                            continue
+                            
+                        # Validate correct_answer
+                        if not isinstance(q['correct_answer'], int) or q['correct_answer'] < 0 or q['correct_answer'] >= 4:
+                            continue
+                            
+                        valid_questions.append(q)
+                    
+                    all_questions.extend(valid_questions)
+                    
+                except Exception as e:
+                    print(f"Error parsing questions from response: {str(e)}")
+                    print(f"Response text: {questions_text[:200]}...")
+                    continue
             
-            Example format:
-            {
-                "questions": [
-                    {
-                        "question": "What is the capital of France?",
-                        "options": [
-                            "London",
-                            "Paris",
-                            "Berlin",
-                            "Madrid"
-                        ],
-                        "correct_answer": 1
-                    }
-                ]
-            }'''
+            if not all_questions:
+                print("No valid questions generated")
+                return None
+                
+            print(f"Successfully generated {len(all_questions)} valid questions")
+            return {"questions": all_questions}
             
-            # User prompt for question generation
-            user_prompt = f'''Generate {num_questions} multiple-choice questions based on this text:
-            {text}
+        except Exception as e:
+            print(f"Error generating questions: {str(e)}")
+            return None
+
+    def generate_solution(self, question: Dict, lecture_text: str) -> Optional[str]:
+        """
+        Generate a detailed step-by-step solution for a question using GPT-4 Turbo.
+        
+        Args:
+            question (Dict): The question object containing question text, options, and correct answer
+            lecture_text (str): The relevant lecture text for context
             
-            Return the questions in valid JSON format exactly as shown in the example.
-            Make sure each question has exactly 4 options and a valid correct_answer index.'''
+        Returns:
+            Optional[str]: Generated solution text or None if generation fails
+        """
+        try:
+            prompt = f"""
+            Generate a detailed step-by-step solution for this question based on the lecture content.
+            Include specific citations from the lecture text.
             
-            # Generate questions using OpenAI
-            response = self.safe_openai_call(
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+            Question: {question['question']}
+            Options: {question['options']}
+            Correct Answer: {question['options'][question['correct_answer']]}
+            Key Concepts: {question['key_concepts']}
+            
+            Lecture Content:
+            {lecture_text}
+            
+            Provide a solution that:
+            1. Explains why the correct answer is right
+            2. Shows step-by-step reasoning
+            3. References specific parts of the lecture
+            4. Explains why other options are incorrect
+            5. Uses clear, concise language
+            """
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[
+                    {"role": "system", "content": "You are an expert at explaining complex concepts step by step."},
+                    {"role": "user", "content": prompt}
                 ],
-                model="gpt-3.5-turbo",
                 temperature=0.7,
                 max_tokens=1000
             )
             
-            if not response:
-                print("Failed to generate questions")
-                return None
-            
-            # Parse the response as JSON
-            try:
-                questions_data = json.loads(response)
-            except json.JSONDecodeError as e:
-                print(f"Failed to parse JSON response: {str(e)}")
-                return None
-            
-            # Validate the structure
-            if not isinstance(questions_data, dict) or 'questions' not in questions_data:
-                print("Invalid JSON structure: missing 'questions' key")
-                return None
-            
-            questions_list = questions_data['questions']
-            if not isinstance(questions_list, list):
-                print("Invalid JSON structure: 'questions' must be a list")
-                return None
-            
-            # Validate each question
-            valid_questions = []
-            for i, q in enumerate(questions_list):
-                try:
-                    # Check required fields
-                    if not all(k in q for k in ['question', 'options', 'correct_answer']):
-                        print(f"Missing required fields in question {i}")
-                        continue
-                    
-                    # Validate question text
-                    if not isinstance(q['question'], str) or not q['question'].strip():
-                        print(f"Invalid question text at index {i}")
-                        continue
-                    
-                    # Validate options
-                    if not isinstance(q['options'], list) or len(q['options']) != 4:
-                        print(f"Invalid options at index {i}: must be a list of exactly 4 items")
-                        continue
-                    
-                    if not all(isinstance(opt, str) and opt.strip() for opt in q['options']):
-                        print(f"Invalid option format at index {i}: all options must be non-empty strings")
-                        continue
-                    
-                    # Validate correct answer
-                    if not isinstance(q['correct_answer'], int) or q['correct_answer'] < 0 or q['correct_answer'] >= 4:
-                        print(f"Invalid correct_answer at index {i}: must be an integer between 0 and 3")
-                        continue
-                    
-                    # Add valid question to list
-                    valid_questions.append({
-                        'question': q['question'].strip(),
-                        'options': [opt.strip() for opt in q['options']],
-                        'correct_answer': q['correct_answer']
-                    })
-                    
-                except Exception as e:
-                    print(f"Error validating question {i}: {str(e)}")
-                    continue
-            
-            if not valid_questions:
-                print("No valid questions generated")
-                return None
-            
-            print(f"Successfully generated {len(valid_questions)} valid questions")
-            return {'questions': valid_questions}
+            return response.choices[0].message.content.strip()
             
         except Exception as e:
-            print(f"Error generating questions: {str(e)}")
+            print(f"Error generating solution: {str(e)}")
             return None
 
     def process_pdf(self, pdf_file) -> Tuple[Optional[str], Optional[dict]]:
