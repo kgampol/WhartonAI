@@ -169,6 +169,29 @@ def check_answer(question_index: int, selected_answer: str, questions: dict) -> 
         print(f"Error checking answer: {str(e)}")
         return f"Error checking answer: {str(e)}"
 
+def handle_regenerate(pdf_file):
+    try:
+        if pdf_file is None:
+            return None, 0, 0, 0, gr.update(value="", visible=False)
+        
+        print("Regenerating questions...")
+        # Show loading message
+        loading_msg = "Regenerating questions... Please wait..."
+        
+        # Process the PDF and generate new questions
+        summary, questions = process_pdf(pdf_file)
+        
+        if not questions or 'questions' not in questions or not questions['questions']:
+            print("Failed to regenerate questions")
+            return None, 0, 0, 0, gr.update(value="Failed to regenerate questions. Please try again.", visible=True)
+        
+        print(f"Successfully regenerated {len(questions['questions'])} questions")
+        return questions, 0, 0, 0, gr.update(value="", visible=False)
+        
+    except Exception as e:
+        print(f"Error regenerating questions: {str(e)}")
+        return None, 0, 0, 0, gr.update(value=f"Error regenerating questions: {str(e)}", visible=True)
+
 def create_interface():
     """
     Create the main Gradio interface for the application.
@@ -184,6 +207,9 @@ def create_interface():
         # Store questions state at the top level
         questions_state = gr.State(None)
         current_question = gr.State(0)
+        correct_answers = gr.State(0)
+        total_questions = gr.State(0)
+        current_pdf = gr.State(None)
         
         with gr.Row():
             with gr.Column():
@@ -217,28 +243,47 @@ def create_interface():
             # Next question button
             next_btn = gr.Button("Next Question", visible=True)
             
+            # Performance display
+            performance_markdown = gr.Markdown(value="Performance: 0/0 (0%)", visible=True)
+            
+            # Regenerate questions button
+            regenerate_btn = gr.Button("Regenerate Questions", visible=False)
+            
+            # Loading message for regeneration
+            loading_msg = gr.Markdown(value="", visible=False)
+            
+            def update_performance_display(correct, total):
+                if total == 0:
+                    return "Performance: 0/0 (0%)"
+                percentage = (correct / total) * 100
+                return f"Performance: {correct}/{total} ({percentage:.1f}%)"
+            
             def update_question(index, questions):
                 try:
                     print(f"Updating question with index {index} and questions: {questions}")
                     
-                    if not questions:
+                    if not questions or 'questions' not in questions:
                         print("Questions state is None")
                         return {
                             question_text: gr.update(value="No questions available. Please process a PDF first."),
-                            answer_choices: gr.update(choices=[], value=None),
+                            answer_choices: gr.update(choices=[], value=None, interactive=True),
                             feedback: gr.update(value=""),
                             submit_btn: gr.update(visible=True),
-                            next_btn: gr.update(visible=True)
+                            next_btn: gr.update(visible=True),
+                            regenerate_btn: gr.update(visible=False),
+                            loading_msg: gr.update(value="", visible=False)
                         }
                     
                     if 'questions' not in questions:
                         print("Questions dictionary missing 'questions' key")
                         return {
                             question_text: gr.update(value="Invalid questions format."),
-                            answer_choices: gr.update(choices=[], value=None),
+                            answer_choices: gr.update(choices=[], value=None, interactive=True),
                             feedback: gr.update(value=""),
                             submit_btn: gr.update(visible=True),
-                            next_btn: gr.update(visible=True)
+                            next_btn: gr.update(visible=True),
+                            regenerate_btn: gr.update(visible=False),
+                            loading_msg: gr.update(value="", visible=False)
                         }
                     
                     questions_list = questions['questions']
@@ -246,20 +291,24 @@ def create_interface():
                         print("Questions list is empty")
                         return {
                             question_text: gr.update(value="No questions available."),
-                            answer_choices: gr.update(choices=[], value=None),
+                            answer_choices: gr.update(choices=[], value=None, interactive=True),
                             feedback: gr.update(value=""),
                             submit_btn: gr.update(visible=True),
-                            next_btn: gr.update(visible=True)
+                            next_btn: gr.update(visible=True),
+                            regenerate_btn: gr.update(visible=False),
+                            loading_msg: gr.update(value="", visible=False)
                         }
                     
                     if index >= len(questions_list):
                         print("Quiz completed")
                         return {
                             question_text: gr.update(value="Quiz completed!"),
-                            answer_choices: gr.update(choices=[], value=None),
+                            answer_choices: gr.update(choices=[], value=None, interactive=True),
                             feedback: gr.update(value=""),
-                            submit_btn: gr.update(visible=True),
-                            next_btn: gr.update(visible=True)
+                            submit_btn: gr.update(visible=False),
+                            next_btn: gr.update(visible=False),
+                            regenerate_btn: gr.update(visible=True),
+                            loading_msg: gr.update(value="", visible=False)
                         }
                     
                     question = questions_list[index]
@@ -267,31 +316,54 @@ def create_interface():
                     
                     return {
                         question_text: gr.update(value=f"Question {index + 1}: {question['question']}"),
-                        answer_choices: gr.update(choices=question['options'], value=None),
+                        answer_choices: gr.update(choices=question['options'], value=None, interactive=True),
                         feedback: gr.update(value=""),
                         submit_btn: gr.update(visible=True),
-                        next_btn: gr.update(visible=True)
+                        next_btn: gr.update(visible=True),
+                        regenerate_btn: gr.update(visible=False),
+                        loading_msg: gr.update(value="", visible=False)
                     }
                 except Exception as e:
                     print(f"Error in update_question: {str(e)}")
                     return {
                         question_text: gr.update(value=f"Error displaying question: {str(e)}"),
-                        answer_choices: gr.update(choices=[], value=None),
+                        answer_choices: gr.update(choices=[], value=None, interactive=True),
                         feedback: gr.update(value=""),
                         submit_btn: gr.update(visible=True),
-                        next_btn: gr.update(visible=True)
+                        next_btn: gr.update(visible=True),
+                        regenerate_btn: gr.update(visible=False),
+                        loading_msg: gr.update(value="", visible=False)
                     }
                 
-            def handle_submit(question_index, selected_answer, questions):
+            def handle_submit(question_index, selected_answer, questions, correct, total):
                 try:
                     if not questions or 'questions' not in questions:
-                        return "No questions available."
+                        return "No questions available.", correct, total, gr.update(interactive=False)
                     if selected_answer is None:
-                        return "Please select an answer."
-                    return check_answer(question_index, selected_answer, questions)
+                        return "Please select an answer.", correct, total, gr.update(interactive=True)
+                    
+                    question = questions['questions'][question_index]
+                    correct_answer_index = question['correct_answer']
+                    options = question['options']
+                    
+                    # Find the index of the selected answer in the options list
+                    selected_index = options.index(selected_answer)
+                    
+                    # Update performance tracking
+                    new_total = total + 1
+                    new_correct = correct
+                    if selected_index == correct_answer_index:
+                        new_correct += 1
+                        feedback_msg = "Correct! Well done! 🎉"
+                    else:
+                        correct_answer = options[correct_answer_index]
+                        feedback_msg = f"Incorrect. The correct answer was: {correct_answer}"
+                    
+                    return feedback_msg, new_correct, new_total, gr.update(interactive=False)
+                    
                 except Exception as e:
                     print(f"Error in handle_submit: {str(e)}")
-                    return f"Error checking answer: {str(e)}"
+                    return f"Error checking answer: {str(e)}", correct, total, gr.update(interactive=True)
                 
             def handle_next(question_index):
                 try:
@@ -304,19 +376,36 @@ def create_interface():
             current_question.change(
                 update_question,
                 inputs=[current_question, questions_state],
-                outputs=[question_text, answer_choices, feedback, submit_btn, next_btn]
+                outputs=[question_text, answer_choices, feedback, submit_btn, next_btn, regenerate_btn, loading_msg]
             )
             
             submit_btn.click(
                 handle_submit,
-                inputs=[current_question, answer_choices, questions_state],
-                outputs=[feedback]
+                inputs=[current_question, answer_choices, questions_state, correct_answers, total_questions],
+                outputs=[feedback, correct_answers, total_questions, answer_choices]
+            ).then(
+                update_performance_display,
+                inputs=[correct_answers, total_questions],
+                outputs=[performance_markdown]
             )
             
             next_btn.click(
                 handle_next,
                 inputs=[current_question],
                 outputs=[current_question]
+            )
+            
+            regenerate_btn.click(
+                lambda: gr.update(value="Regenerating questions... Please wait...", visible=True),
+                outputs=[loading_msg]
+            ).then(
+                handle_regenerate,
+                inputs=[current_pdf],
+                outputs=[questions_state, current_question, correct_answers, total_questions, loading_msg]
+            ).then(
+                update_performance_display,
+                inputs=[correct_answers, total_questions],
+                outputs=[performance_markdown]
             )
             
         def handle_pdf_processing(pdf_file):
@@ -326,18 +415,18 @@ def create_interface():
                 
                 if summary is None:
                     print("Failed to generate summary")
-                    return "Error processing PDF. Please try again.", None, 0
+                    return "Error processing PDF. Please try again.", None, 0, 0, 0, None
                 
                 if not questions or 'questions' not in questions or not questions['questions']:
                     print("No questions generated")
-                    return summary, None, 0
+                    return summary, None, 0, 0, 0, None
                 
                 print(f"Successfully generated {len(questions['questions'])} questions")
-                return summary, questions, 0
+                return summary, questions, 0, 0, 0, pdf_file
                 
             except Exception as e:
                 print(f"Error in handle_pdf_processing: {str(e)}")
-                return f"Error processing PDF: {str(e)}", None, 0
+                return f"Error processing PDF: {str(e)}", None, 0, 0, 0, None
             
         # Set up the process button click handler
         process_btn.click(
@@ -346,12 +435,19 @@ def create_interface():
             outputs=[
                 summary_output,
                 questions_state,
-                current_question
+                current_question,
+                correct_answers,
+                total_questions,
+                current_pdf
             ]
         ).then(
             update_question,
             inputs=[current_question, questions_state],
-            outputs=[question_text, answer_choices, feedback, submit_btn, next_btn]
+            outputs=[question_text, answer_choices, feedback, submit_btn, next_btn, regenerate_btn, loading_msg]
+        ).then(
+            update_performance_display,
+            inputs=[correct_answers, total_questions],
+            outputs=[performance_markdown]
         )
         
     return interface
