@@ -113,3 +113,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - OpenAI for providing the GPT-3.5-turbo API
 - Gradio team for the excellent UI framework
 - All contributors who have helped improve this project
+
+---
+Last updated: March 2024
