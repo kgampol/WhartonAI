@@ -132,31 +132,42 @@ def process_pdf(pdf_file) -> Tuple[Optional[str], Optional[dict]]:
     questions = processor.generate_questions(text)
     return summary, questions
 
-def check_answer(question_index: int, selected_answer: int, questions: dict) -> str:
+def check_answer(question_index: int, selected_answer: str, questions: dict) -> str:
     """
-    Check if the selected answer is correct and provide feedback.
+    Check if the selected answer is correct for the given question.
     
     Args:
         question_index (int): Index of the current question
-        selected_answer (int): Index of the selected answer
+        selected_answer (str): The answer selected by the user
         questions (dict): Dictionary containing all questions and answers
         
     Returns:
-        str: Feedback message
+        str: Feedback message indicating if the answer was correct
     """
-    if not questions or 'questions' not in questions:
-        return "No questions available."
+    try:
+        if not questions or 'questions' not in questions:
+            return "Error: No questions available."
+            
+        if question_index >= len(questions['questions']):
+            return "Error: Question index out of range."
+            
+        question = questions['questions'][question_index]
+        correct_answer_index = question['correct_answer']
+        options = question['options']
         
-    if question_index >= len(questions['questions']):
-        return "Invalid question index."
+        # Find the index of the selected answer in the options list
+        selected_index = options.index(selected_answer)
         
-    question = questions['questions'][question_index]
-    correct_answer = question['correct_answer']
-    
-    if selected_answer == correct_answer:
-        return "Correct! Well done! 🎉"
-    else:
-        return f"Incorrect. The correct answer was: {question['options'][correct_answer]}"
+        # Compare the indices
+        if selected_index == correct_answer_index:
+            return "Correct! Well done! 🎉"
+        else:
+            correct_answer = options[correct_answer_index]
+            return f"Incorrect. The correct answer was: {correct_answer}"
+            
+    except Exception as e:
+        print(f"Error checking answer: {str(e)}")
+        return f"Error checking answer: {str(e)}"
 
 def create_interface():
     """
