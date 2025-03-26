@@ -154,8 +154,8 @@ class PDFProcessor:
 
             response = self.safe_openai_call(
                 [
-                    {"role": "system", "content": "You are a helpful assistant that creates concise summaries of academic content. Include all important details and key points, equations, and diagrams needed to understand the content and answer questions."},
-                    {"role": "user", "content": f"Please summarize the following lecture notes:\n\n{text}"}
+                    {"role": "system", "content": "You are a helpful assistant that creates concise summaries of academic content. Include all important details and key points, equations, and diagrams needed to understand the content and answer questions. Imagine you are a student in the class taking notes give me the notes in a way that is easy to understand gives as much information as possible:"},
+                    {"role": "user", "content": f"Please summarize the following lecture notes including all important details and key points, equations, and diagrams needed to understand the content and answer questions, imagine you are a student in the class taking notes give me the notes in a way that is easy to understand gives as much information as possible:\n\n{text}"}
                 ],
                 model="gpt-3.5-turbo",
                 temperature=0.7,
