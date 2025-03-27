@@ -1,17 +1,20 @@
 """
-WhartonAI - Lecture Notes Assistant
-==================================
+MasterMind AI - Lecture Notes Assistant
+=====================================
 
-A Gradio-based web application that provides two main functionalities:
+A Gradio-based web application that provides comprehensive learning assistance:
 1. An AI chat interface powered by OpenAI's GPT models
-2. A PDF processor that can extract text, generate summaries, and create quiz questions from lecture notes
+2. A PDF processor that can extract text, generate summaries, and create quiz questions
+3. Interactive quizzes with detailed explanations and step-by-step solutions
+4. Performance tracking and targeted practice based on weak concepts
+5. Detailed performance reviews with improvement suggestions
 
 Requirements:
 - Python 3.7+
 - Dependencies listed in requirements.txt
 - OpenAI API key set in .env file
 
-Author: Wharton TEAM
+Author: MasterMind AI Team
 License: MIT
 """
 
@@ -450,15 +453,20 @@ def create_interface():
     """
     Create the main Gradio interface for the application.
     """
-    with gr.Blocks(title="WhartonAI - Lecture Notes Assistant") as interface:
-        gr.Markdown("# WhartonAI - Lecture Notes Assistant")
+    with gr.Blocks(title="MasterMind AI - Lecture Notes Assistant") as interface:
+        gr.Markdown("# MasterMind AI - Lecture Notes Assistant")
         gr.Markdown("""
-        Welcome to WhartonAI Lecture Notes Assistant!
+        Welcome to MasterMind AI Lecture Notes Assistant!
         
         This tool helps you better understand and retain your lecture materials by:
         1. Creating a concise AI-powered summary of your lecture notes
         2. Generating an interactive quiz with detailed explanations
         3. Providing step-by-step solutions to reinforce your learning
+        4. Offering targeted practice questions based on your weak concepts
+        5. Tracking your performance and progress
+        6. Providing detailed performance reviews with improvement suggestions
+        7. Supporting multiple-choice questions with instant feedback
+        8. Allowing you to focus on specific topics you need to improve
         
         To get started, simply upload your lecture notes PDF using the file selector.
         """)
@@ -851,4 +859,9 @@ def create_interface():
 
 if __name__ == "__main__":
     interface = create_interface()
-    interface.launch()
+    interface.launch(
+        server_name="0.0.0.0",
+        server_port=7869,
+        share=True,
+        favicon_path="favicon.ico"
+    )
