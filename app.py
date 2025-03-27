@@ -329,7 +329,8 @@ def create_interface():
                             submit_btn: gr.update(visible=True),
                             next_btn: gr.update(visible=True),
                             regenerate_btn: gr.update(visible=False),
-                            loading_msg: gr.update(value="", visible=False)
+                            loading_msg: gr.update(value="", visible=False),
+                            generate_solution_btn: gr.update(visible=False)
                         }
                     
                     if 'questions' not in questions:
@@ -342,7 +343,8 @@ def create_interface():
                             submit_btn: gr.update(visible=True),
                             next_btn: gr.update(visible=True),
                             regenerate_btn: gr.update(visible=False),
-                            loading_msg: gr.update(value="", visible=False)
+                            loading_msg: gr.update(value="", visible=False),
+                            generate_solution_btn: gr.update(visible=False)
                         }
                     
                     questions_list = questions['questions']
@@ -356,7 +358,8 @@ def create_interface():
                             submit_btn: gr.update(visible=True),
                             next_btn: gr.update(visible=True),
                             regenerate_btn: gr.update(visible=False),
-                            loading_msg: gr.update(value="", visible=False)
+                            loading_msg: gr.update(value="", visible=False),
+                            generate_solution_btn: gr.update(visible=False)
                         }
                     
                     if index >= len(questions_list):
@@ -369,7 +372,8 @@ def create_interface():
                             submit_btn: gr.update(visible=False),
                             next_btn: gr.update(visible=False),
                             regenerate_btn: gr.update(visible=True),
-                            loading_msg: gr.update(value="", visible=False)
+                            loading_msg: gr.update(value="", visible=False),
+                            generate_solution_btn: gr.update(visible=False)
                         }
                     
                     question = questions_list[index]
@@ -383,7 +387,8 @@ def create_interface():
                         submit_btn: gr.update(visible=True),
                         next_btn: gr.update(visible=True),
                         regenerate_btn: gr.update(visible=False),
-                        loading_msg: gr.update(value="", visible=False)
+                        loading_msg: gr.update(value="", visible=False),
+                        generate_solution_btn: gr.update(visible=False)
                     }
                 except Exception as e:
                     print(f"Error in update_question: {str(e)}")
@@ -395,7 +400,8 @@ def create_interface():
                         submit_btn: gr.update(visible=True),
                         next_btn: gr.update(visible=True),
                         regenerate_btn: gr.update(visible=False),
-                        loading_msg: gr.update(value="", visible=False)
+                        loading_msg: gr.update(value="", visible=False),
+                        generate_solution_btn: gr.update(visible=False)
                     }
                 
             def handle_submit(question_index, selected_answer, questions, correct, total):
@@ -442,30 +448,43 @@ def create_interface():
             
             def generate_solution(question_index, questions, current_pdf):
                 try:
+                    # Record the start time for performance monitoring
+                    start_time = time.time()
+                    
                     if not questions or 'questions' not in questions:
                         return gr.update(value="Error: No questions available.", visible=True)
+                    
+                    # Show initial timing message
+                    yield gr.update(value="Generating solution...", visible=True)
                     
                     question = questions['questions'][question_index]
                     processor = PDFProcessor()
                     text, success = processor.extract_text(current_pdf.name)
                     if not success:
-                        return gr.update(value="Error processing PDF for solution.", visible=True)
+                        yield gr.update(value="Error processing PDF for solution.", visible=True)
+                        return
+                    
+                    # Show intermediate message without timing
+                    yield gr.update(value="Generating solution steps...", visible=True)
                     
                     solution_text = processor.generate_solution(question, text)
                     if solution_text:
-                        return gr.update(value=solution_text, visible=True)
+                        # Calculate final time
+                        total_time = time.time() - start_time
+                        # Show final solution with timing
+                        yield gr.update(value=f"{solution_text}\n\n---\nSolution generated in {total_time:.2f} seconds", visible=True)
                     else:
-                        return gr.update(value="Error generating solution. Please try again.", visible=True)
+                        yield gr.update(value="Error generating solution. Please try again.", visible=True)
                     
                 except Exception as e:
                     print(f"Error generating solution: {str(e)}")
-                    return gr.update(value=f"Error: {str(e)}", visible=True)
+                    yield gr.update(value=f"Error: {str(e)}", visible=True)
             
             # Set up event handlers
             current_question.change(
                 update_question,
                 inputs=[current_question, questions_state],
-                outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg]
+                outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn]
             )
             
             submit_btn.click(
@@ -497,10 +516,12 @@ def create_interface():
                 outputs=[performance_markdown]
             )
             
+            # Modified event handler for generate_solution_btn to support generator function
             generate_solution_btn.click(
                 generate_solution,
                 inputs=[current_question, questions_state, current_pdf],
-                outputs=[solution]
+                outputs=[solution],
+                queue=True  # Enable queueing for streaming updates
             )
             
         # Set up the process button click handler
@@ -529,7 +550,7 @@ def create_interface():
         ).then(
             update_question,
             inputs=[current_question, questions_state],
-            outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg]
+            outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn]
         ).then(
             update_performance_display,
             inputs=[correct_answers, total_questions],
