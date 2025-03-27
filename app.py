@@ -1,17 +1,20 @@
 """
-WhartonAI - Lecture Notes Assistant
-==================================
+MasterMind AI - Lecture Notes Assistant
+=====================================
 
-A Gradio-based web application that provides two main functionalities:
+A Gradio-based web application that provides comprehensive learning assistance:
 1. An AI chat interface powered by OpenAI's GPT models
-2. A PDF processor that can extract text, generate summaries, and create quiz questions from lecture notes
+2. A PDF processor that can extract text, generate summaries, and create quiz questions
+3. Interactive quizzes with detailed explanations and step-by-step solutions
+4. Performance tracking and targeted practice based on weak concepts
+5. Detailed performance reviews with improvement suggestions
 
 Requirements:
 - Python 3.7+
 - Dependencies listed in requirements.txt
 - OpenAI API key set in .env file
 
-Author: Wharton TEAM
+Author: MasterMind AI Team
 License: MIT
 """
 
@@ -23,6 +26,7 @@ from pdf_processor import PDFProcessor
 from dotenv import load_dotenv
 import json
 from typing import Dict, List, Optional, Tuple
+import base64
 
 # Load environment variables from .env file
 load_dotenv()
@@ -242,21 +246,35 @@ def handle_pdf_processing(pdf_file):
         processor = PDFProcessor()
         text, success = processor.extract_text(pdf_file.name)
         if not success:
-            return "Error processing PDF. Please try again.", None, 0, 0, 0, None, "Error processing PDF", gr.update(visible=False)
+            return "Error processing PDF. Please try again.", None, 0, 0, 0, None, "Error processing PDF", gr.update(visible=False), gr.update(value="", visible=False)
         
         summary = processor.generate_summary(text)
         if summary is None:
-            return "Error generating summary. Please try again.", None, 0, 0, 0, None, "Error generating summary", gr.update(visible=False)
+            return "Error generating summary. Please try again.", None, 0, 0, 0, None, "Error generating summary", gr.update(visible=False), gr.update(value="", visible=False)
         
         # Show summary immediately and indicate quiz generation
         quiz_status = "Generating quiz questions... Please wait..."
         
+        # Create PDF preview HTML with data URL
+        with open(pdf_file.name, 'rb') as pdf_file:
+            pdf_data = base64.b64encode(pdf_file.read()).decode('utf-8')
+            pdf_viewer_html = f"""
+            <div style="width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 4px; overflow: hidden;">
+                <iframe 
+                    src="data:application/pdf;base64,{pdf_data}"
+                    width="100%" 
+                    height="100%" 
+                    style="border: none;"
+                ></iframe>
+            </div>
+            """
+        
         # Return immediately with summary and status
-        return summary, None, 0, 0, 0, pdf_file, quiz_status, gr.update(visible=False)
+        return summary, None, 0, 0, 0, pdf_file, quiz_status, gr.update(visible=False), gr.update(value=pdf_viewer_html, visible=True)
         
     except Exception as e:
         print(f"Error in handle_pdf_processing: {str(e)}")
-        return f"Error processing PDF: {str(e)}", None, 0, 0, 0, None, f"Error: {str(e)}", gr.update(visible=False)
+        return f"Error processing PDF: {str(e)}", None, 0, 0, 0, None, f"Error: {str(e)}", gr.update(visible=False), gr.update(value="", visible=False)
 
 def generate_questions_async(pdf_file):
     try:
@@ -450,15 +468,20 @@ def create_interface():
     """
     Create the main Gradio interface for the application.
     """
-    with gr.Blocks(title="WhartonAI - Lecture Notes Assistant") as interface:
-        gr.Markdown("# WhartonAI - Lecture Notes Assistant")
+    with gr.Blocks(title="MasterMind AI - Lecture Notes Assistant") as interface:
+        gr.Markdown("# MasterMind AI - Lecture Notes Assistant")
         gr.Markdown("""
-        Welcome to WhartonAI Lecture Notes Assistant!
+        Welcome to MasterMind AI Lecture Notes Assistant!
         
         This tool helps you better understand and retain your lecture materials by:
         1. Creating a concise AI-powered summary of your lecture notes
         2. Generating an interactive quiz with detailed explanations
         3. Providing step-by-step solutions to reinforce your learning
+        4. Offering targeted practice questions based on your weak concepts
+        5. Tracking your performance and progress
+        6. Providing detailed performance reviews with improvement suggestions
+        7. Supporting multiple-choice questions with instant feedback
+        8. Allowing you to focus on specific topics you need to improve
         
         To get started, simply upload your lecture notes PDF using the file selector.
         """)
@@ -480,9 +503,16 @@ def create_interface():
                 summary_output = gr.Textbox(label="Summary", lines=10)
                 quiz_status = gr.Markdown(value="", visible=True)
                 
+        # Add PDF viewer using HTML and iframe
+        with gr.Row():
+            pdf_viewer = gr.HTML(value="", visible=False)
+            
         # Quiz interface components
         with gr.Column() as quiz_interface:
             gr.Markdown("## Quiz")
+            
+            # Add question counter
+            question_counter = gr.Markdown(value="Question: 0/0", visible=True)
             
             # Display question
             question_text = gr.Markdown(value="", visible=True)
@@ -554,7 +584,8 @@ def create_interface():
                             regenerate_btn: gr.update(visible=False),
                             loading_msg: gr.update(value="", visible=False),
                             generate_solution_btn: gr.update(visible=False),
-                            performance_review: gr.update(value="", visible=False)
+                            performance_review: gr.update(value="", visible=False),
+                            question_counter: gr.update(value="Question: 0/0", visible=True)
                         }
                     
                     if 'questions' not in questions:
@@ -569,7 +600,8 @@ def create_interface():
                             regenerate_btn: gr.update(visible=False),
                             loading_msg: gr.update(value="", visible=False),
                             generate_solution_btn: gr.update(visible=False),
-                            performance_review: gr.update(value="", visible=False)
+                            performance_review: gr.update(value="", visible=False),
+                            question_counter: gr.update(value="Question: 0/0", visible=True)
                         }
                     
                     questions_list = questions['questions']
@@ -585,7 +617,8 @@ def create_interface():
                             regenerate_btn: gr.update(visible=False),
                             loading_msg: gr.update(value="", visible=False),
                             generate_solution_btn: gr.update(visible=False),
-                            performance_review: gr.update(value="", visible=False)
+                            performance_review: gr.update(value="", visible=False),
+                            question_counter: gr.update(value="Question: 0/0", visible=True)
                         }
                     
                     # Ensure index is within bounds
@@ -603,7 +636,8 @@ def create_interface():
                             regenerate_btn: gr.update(visible=False),
                             loading_msg: gr.update(value="", visible=False),
                             generate_solution_btn: gr.update(visible=False),
-                            performance_review: gr.update(value="", visible=False)
+                            performance_review: gr.update(value="", visible=False),
+                            question_counter: gr.update(value=f"Quiz Complete! ({len(questions_list)} questions)", visible=True)
                         }
                     
                     question = questions_list[safe_index]
@@ -620,7 +654,8 @@ def create_interface():
                         regenerate_btn: gr.update(visible=False),
                         loading_msg: gr.update(value="", visible=False),
                         generate_solution_btn: gr.update(visible=False),
-                        performance_review: gr.update(value="", visible=False)
+                        performance_review: gr.update(value="", visible=False),
+                        question_counter: gr.update(value=f"Question: {safe_index + 1}/{len(questions_list)}", visible=True)
                     }
                 except Exception as e:
                     print(f"Error in update_question: {str(e)}")
@@ -634,7 +669,8 @@ def create_interface():
                         regenerate_btn: gr.update(visible=False),
                         loading_msg: gr.update(value="", visible=False),
                         generate_solution_btn: gr.update(visible=False),
-                        performance_review: gr.update(value="", visible=False)
+                        performance_review: gr.update(value="", visible=False),
+                        question_counter: gr.update(value="Question: 0/0", visible=True)
                     }
                 
             def handle_submit(question_index, selected_answer, questions, correct, total, wrong_indices):
@@ -740,7 +776,7 @@ def create_interface():
             current_question.change(
                 update_question,
                 inputs=[current_question, questions_state],
-                outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn, performance_review]
+                outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn, performance_review, question_counter]
             )
             
             submit_btn.click(
@@ -793,7 +829,7 @@ def create_interface():
             ).then(
                 update_question,
                 inputs=[current_question, questions_state],
-                outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn, performance_review]
+                outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn, performance_review, question_counter]
             ).then(
                 update_performance_display,
                 inputs=[correct_answers, total_questions],
@@ -823,7 +859,8 @@ def create_interface():
                 total_questions,
                 current_pdf,
                 quiz_status,
-                regenerate_btn
+                regenerate_btn,
+                pdf_viewer
             ]
         ).then(
             generate_questions_async,
@@ -840,7 +877,7 @@ def create_interface():
         ).then(
             update_question,
             inputs=[current_question, questions_state],
-            outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn, performance_review]
+            outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn, performance_review, question_counter]
         ).then(
             update_performance_display,
             inputs=[correct_answers, total_questions],
@@ -851,4 +888,8 @@ def create_interface():
 
 if __name__ == "__main__":
     interface = create_interface()
-    interface.launch()
+    interface.launch(
+        server_name="127.0.0.1",
+        server_port=7869,
+        favicon_path="favicon.ico"
+    )

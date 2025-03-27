@@ -156,7 +156,7 @@ class PDFProcessor:
             response = self.safe_openai_call(
                 [
                     {"role": "system", "content": "You are a top-performing student taking clear, thorough lecture notes for study purposes. Your goal is to create easy-to-understand, organized, and information-rich notes that summarize the material in full detail. Capture all key concepts, definitions, equations, examples, and diagrams (described if not visible). Use bullet points, headings, or numbering to make the notes easy to follow. Prioritize clarity, completeness, and study-readiness."},
-                    {"role": "user", "content": f"Summarize the following lecture notes as if you’re a student taking detailed notes for future studying. Include all important points, concepts, formulas, examples, and visual elements (describe diagrams if present). Make the notes as clear, complete, and structured as possible:\n\n{text}"}
+                    {"role": "user", "content": f"Summarize the following lecture notes as if you're a student taking detailed notes for future studying. Include all important points, concepts, formulas, examples, and visual elements (describe diagrams if present). Make the notes as clear, complete, and structured as possible:\n\n{text}"}
                 ],
                 model="gpt-3.5-turbo",
                 temperature=0.7,
@@ -358,6 +358,91 @@ class PDFProcessor:
             
         except Exception as e:
             print(f"Error generating solution: {str(e)}")
+            return None
+
+    def generate_targeted_questions(self, text: str, weak_concepts: List[str]) -> Optional[Dict]:
+        """
+        Generate questions specifically targeting weak concepts.
+        
+        Args:
+            text (str): The lecture content
+            weak_concepts (List[str]): List of concepts that need more practice
+            
+        Returns:
+            Optional[Dict]: Dictionary containing generated questions or None if generation fails
+        """
+        try:
+            prompt = f"""
+            Based on the lecture content below, create 3-5 multiple-choice questions that target these weak concepts:
+            {', '.join(weak_concepts)}
+
+            Return ONLY a valid JSON array of questions.
+            Each question should have:
+            - question
+            - options (4)
+            - correct_answer (index)
+            - key_concepts
+            - citations
+
+            Lecture content:
+            {text[:3000]}
+            """
+
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are an educational assistant who only outputs valid JSON arrays."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=1000
+            )
+
+            questions_text = response.choices[0].message.content.strip()
+            
+            # Try to parse the response as JSON
+            try:
+                questions = json.loads(questions_text)
+            except json.JSONDecodeError:
+                # If that fails, try to extract JSON array using regex
+                questions_match = re.search(r'\[.*\]', questions_text, re.DOTALL)
+                if questions_match:
+                    questions_json = questions_match.group(0)
+                    questions = json.loads(questions_json)
+                else:
+                    print(f"Could not find valid JSON array in response: {questions_text[:100]}...")
+                    return None
+            
+            # Validate each question
+            valid_questions = []
+            for q in questions:
+                if not isinstance(q, dict):
+                    continue
+                    
+                # Check required fields
+                required_fields = ['question', 'options', 'correct_answer', 'key_concepts', 'citations']
+                if not all(field in q for field in required_fields):
+                    continue
+                    
+                # Validate options
+                if not isinstance(q['options'], list) or len(q['options']) != 4:
+                    continue
+                    
+                # Validate correct_answer
+                if not isinstance(q['correct_answer'], int) or q['correct_answer'] < 0 or q['correct_answer'] >= 4:
+                    continue
+                    
+                valid_questions.append(q)
+            
+            if not valid_questions:
+                print("No valid questions generated")
+                return None
+                
+            print(f"Successfully generated {len(valid_questions)} targeted questions")
+            return {"questions": valid_questions}
+            
+        except Exception as e:
+            print(f"Error in targeted question generation: {str(e)}")
             return None
 
     def process_pdf(self, pdf_file) -> Tuple[Optional[str], Optional[dict]]:
