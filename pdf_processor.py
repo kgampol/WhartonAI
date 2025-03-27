@@ -155,8 +155,8 @@ class PDFProcessor:
 
             response = self.safe_openai_call(
                 [
-                    {"role": "system", "content": "You are a helpful assistant that creates concise summaries of academic content. Include all important details and key points, equations, and diagrams needed to understand the content and answer questions. Imagine you are a student in the class taking notes give me the notes in a way that is easy to understand gives as much information as possible:"},
-                    {"role": "user", "content": f"Please summarize the following lecture notes including all important details and key points, equations, and diagrams needed to understand the content and answer questions, imagine you are a student in the class taking notes give me the notes in a way that is easy to understand gives as much information as possible:\n\n{text}"}
+                    {"role": "system", "content": "You are a top-performing student taking clear, thorough lecture notes for study purposes. Your goal is to create easy-to-understand, organized, and information-rich notes that summarize the material in full detail. Capture all key concepts, definitions, equations, examples, and diagrams (described if not visible). Use bullet points, headings, or numbering to make the notes easy to follow. Prioritize clarity, completeness, and study-readiness."},
+                    {"role": "user", "content": f"Summarize the following lecture notes as if you’re a student taking detailed notes for future studying. Include all important points, concepts, formulas, examples, and visual elements (describe diagrams if present). Make the notes as clear, complete, and structured as possible:\n\n{text}"}
                 ],
                 model="gpt-3.5-turbo",
                 temperature=0.7,
@@ -224,7 +224,7 @@ class PDFProcessor:
             for chunk in chunks:
                 # Generate questions for this chunk
                 prompt = f"""
-                Based on the following lecture content, generate 2-3 multiple-choice questions.
+                Based on the following lecture content, generate 2 multiple-choice questions.
                 Return ONLY a JSON array of questions, with no additional text or explanation.
                 
                 Each question should be a JSON object with these exact fields:
