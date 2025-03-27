@@ -754,6 +754,12 @@ def create_interface():
                 lambda: 0,  # Reset total_questions to 0
                 outputs=[total_questions]
             ).then(
+                lambda: 0,  # Reset correct_answers to 0
+                outputs=[correct_answers]
+            ).then(
+                lambda: [],  # Reset wrong_indices to empty list
+                outputs=[wrong_indices]
+            ).then(
                 update_question,
                 inputs=[current_question, questions_state],
                 outputs=[question_text, answer_choices, feedback, solution, submit_btn, next_btn, regenerate_btn, loading_msg, generate_solution_btn, performance_review]
