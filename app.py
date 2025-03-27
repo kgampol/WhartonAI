@@ -169,31 +169,50 @@ def check_answer(question_index: int, selected_answer: str, questions: dict) -> 
         print(f"Error checking answer: {str(e)}")
         return f"Error checking answer: {str(e)}"
 
-def handle_regenerate(pdf_file):
+def handle_regenerate(pdf_file, questions, wrong_indices):
     try:
         if not pdf_file:
-            return gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Please upload a PDF file first."), gr.update(visible=False)
+            return gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Please upload a PDF file first."), gr.update(visible=False), gr.update(value="", visible=False), gr.update(value="", visible=False)
         
         # Record the start time for performance monitoring
         start_time = time.time()
         
         # Show initial loading message
-        yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Processing PDF file..."), gr.update(visible=False)
+        yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Processing PDF file..."), gr.update(visible=False), gr.update(value="", visible=False), gr.update(value="", visible=False)
         
         # Process PDF and generate questions
         processor = PDFProcessor()
         text, success = processor.extract_text(pdf_file.name)
         if not success:
-            yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Error processing PDF. Please try again."), gr.update(visible=False)
+            yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Error processing PDF. Please try again."), gr.update(visible=False), gr.update(value="", visible=False), gr.update(value="", visible=False)
             return
         
-        # Show progress for question generation
-        current_time = time.time() - start_time
-        yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value=f"Generating questions... ({current_time:.2f}s)"), gr.update(visible=False)
+        # Extract weak concepts from wrong questions
+        weak_concepts = []
+        if questions and 'questions' in questions:
+            for i in wrong_indices:
+                if i < len(questions['questions']):
+                    weak_concepts.extend(questions['questions'][i].get('key_concepts', []))
         
-        questions = processor.generate_questions(text)
+        # Remove duplicates and show progress
+        weak_concepts = list(set(weak_concepts))
+        current_time = time.time() - start_time
+        
+        if weak_concepts:
+            target_message = f"🎯 Generating targeted questions for: {', '.join(weak_concepts)}"
+            focused_topics_message = f"### 📚 Focused Topics\n\n{', '.join(weak_concepts)}"
+            yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value=f"{target_message}... ({current_time:.2f}s)"), gr.update(visible=False), gr.update(value=target_message, visible=True), gr.update(value=focused_topics_message, visible=True)
+            
+            # Generate targeted questions
+            questions = processor.generate_targeted_questions(text, weak_concepts)
+        else:
+            yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value=f"Generating new questions... ({current_time:.2f}s)"), gr.update(visible=False), gr.update(value="", visible=False), gr.update(value="", visible=False)
+            
+            # Generate regular questions if no weak concepts
+            questions = processor.generate_questions(text)
+        
         if not questions or 'questions' not in questions:
-            yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Error generating questions. Please try again."), gr.update(visible=False)
+            yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value="Error generating questions. Please try again."), gr.update(visible=False), gr.update(value="", visible=False), gr.update(value="", visible=False)
             return
         
         # Show final success message with timing
@@ -207,12 +226,14 @@ def handle_regenerate(pdf_file):
             gr.update(value=0),          # correct_answers
             gr.update(value=[]),         # wrong_indices
             gr.update(value=f"Successfully generated {len(questions['questions'])} questions in {total_time:.2f} seconds"),  # loading_msg
-            gr.update(visible=False)     # regenerate_btn
+            gr.update(visible=False),    # regenerate_btn
+            gr.update(value="", visible=False),  # target_banner
+            gr.update(value=focused_topics_message if weak_concepts else "", visible=bool(weak_concepts))  # focused_topics
         )
         
     except Exception as e:
         print(f"Error in handle_regenerate: {str(e)}")
-        yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value=f"Error: {str(e)}"), gr.update(visible=False)
+        yield gr.update(value=None), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value=f"Error: {str(e)}"), gr.update(visible=False), gr.update(value="", visible=False), gr.update(value="", visible=False)
 
 def handle_pdf_processing(pdf_file):
     try:
@@ -495,8 +516,18 @@ def create_interface():
             # Performance review
             performance_review = gr.Markdown(value="", visible=False)
             
+            # Target banner for regeneration
+            target_banner = gr.Markdown(value="", visible=False)
+            
+            # Focused topics display
+            focused_topics = gr.Markdown(
+                value="",
+                visible=False,
+                elem_classes="focused-topics"
+            )
+            
             # Regenerate questions button
-            regenerate_btn = gr.Button("Regenerate Questions", visible=False)
+            regenerate_btn = gr.Button("Focus on Weak Concepts", visible=False)
             
             # Loading message for regeneration
             loading_msg = gr.Markdown(value="", visible=False)
@@ -744,8 +775,8 @@ def create_interface():
                 outputs=[loading_msg]
             ).then(
                 handle_regenerate,
-                inputs=[current_pdf],
-                outputs=[questions_state, current_question, correct_answers, wrong_indices, loading_msg, regenerate_btn],
+                inputs=[current_pdf, questions_state, wrong_indices],
+                outputs=[questions_state, current_question, correct_answers, wrong_indices, loading_msg, regenerate_btn, target_banner, focused_topics],
                 queue=True  # Enable queueing for streaming updates
             ).then(
                 lambda: 0,  # Reset current_question to 0
