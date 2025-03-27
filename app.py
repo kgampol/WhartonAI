@@ -199,7 +199,16 @@ def handle_regenerate(pdf_file):
         # Show final success message with timing
         total_time = time.time() - start_time
         print(f"Successfully generated {len(questions['questions'])} questions")
-        yield gr.update(value=questions), gr.update(value=0), gr.update(value=0), gr.update(value=[]), gr.update(value=f"Successfully generated {len(questions['questions'])} questions in {total_time:.2f} seconds"), gr.update(visible=False)
+        
+        # Reset all quiz state variables
+        yield (
+            gr.update(value=questions),  # questions_state
+            gr.update(value=0),          # current_question
+            gr.update(value=0),          # correct_answers
+            gr.update(value=[]),         # wrong_indices
+            gr.update(value=f"Successfully generated {len(questions['questions'])} questions in {total_time:.2f} seconds"),  # loading_msg
+            gr.update(visible=False)     # regenerate_btn
+        )
         
     except Exception as e:
         print(f"Error in handle_regenerate: {str(e)}")
@@ -292,31 +301,99 @@ def generate_performance_review(questions, correct_answers, total_questions, wro
         if not wrong_questions:
             return "Congratulations! You got all questions correct! No areas need improvement."
         
-        # Create a concise prompt that focuses on key information
-        prompt = f"""Review these incorrect answers and provide focused feedback:
+        # Create a more structured prompt for better feedback
+        prompt = f"""As an educational advisor, analyze these incorrect answers and provide a structured review.
 
-Questions:
+Questions Missed:
 {json.dumps(wrong_questions, indent=2)}
 
-Provide:
-1. Main topics needing improvement
-2. Specific slides to review
-3. Key study tips
+Please provide a review in the following format:
 
-Keep feedback concise and actionable."""
+1. Overall Performance Summary
+   - Brief assessment of performance
+   - Key strengths and areas for improvement
+
+2. Topic Analysis
+   - List main topics that need review
+   - Identify specific concepts that were challenging
+   - Reference relevant lecture sections
+
+3. Action Plan
+   - Specific study recommendations
+   - Practice exercises or review methods
+   - Suggested resources or materials
+
+4. Learning Strategy
+   - Tips for better understanding
+   - Memory retention techniques
+   - Test-taking strategies
+
+Keep the feedback:
+- Concise and actionable
+- Focused on improvement
+- Specific to the topics covered
+- Encouraging and constructive
+
+Format the response in clear markdown sections with bullet points for easy reading."""
         
         # Call GPT-3.5 API with optimized parameters
         response = OpenAI(api_key=os.getenv("OPENAI_API_KEY")).chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a concise educational advisor. Provide focused, actionable feedback."},
+                {"role": "system", "content": "You are an expert educational advisor specializing in personalized learning feedback. Your responses are structured, actionable, and encouraging. You focus on specific improvements while maintaining a supportive tone."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=500
+            max_tokens=800
         )
         
-        return response.choices[0].message.content
+        # Get the feedback from GPT
+        feedback = response.choices[0].message.content
+        
+        # Create a list of all wrong questions
+        wrong_questions_list = []
+        for i in wrong_indices:
+            if i < len(questions['questions']):
+                question = questions['questions'][i]
+                wrong_questions_list.append({
+                    'question': question['question'],
+                    'correct_answer': question['options'][question['correct_answer']],
+                    'key_concepts': question['key_concepts'],
+                    'citations': question['citations']
+                })
+        
+        # Format the review with feedback and wrong questions
+        formatted_review = f"""
+## Performance Review
+
+{feedback}
+
+## Questions to Review
+
+Here are the questions you answered incorrectly. Take time to understand why the correct answers are right and how they relate to the key concepts.
+"""
+        # Add each wrong question with its details
+        for i, q in enumerate(wrong_questions_list, 1):
+            formatted_review += f"""
+
+### Question {i}
+{q['question']}
+
+**Correct Answer:** {q['correct_answer']}
+
+**Key Concepts to Review:**
+* {', '.join(q['key_concepts'])}
+
+**Relevant Lecture Sections:**
+* {', '.join(q['citations'])}
+"""
+        
+        formatted_review += """
+---
+*Review generated based on your quiz performance. Use this information to focus your study efforts on areas that need improvement.*
+"""
+        
+        return formatted_review
         
     except Exception as e:
         print(f"Error generating performance review: {str(e)}")
@@ -341,18 +418,8 @@ def handle_quiz_completion(questions, correct_answers, total_questions, wrong_in
         # Generate the review
         review = generate_performance_review(questions, correct_answers, total_questions, wrong_indices)
         
-        # Format the review with a clear header
-        formatted_review = f"""
-## Performance Review
-
-{review}
-
----
-*Review generated based on your quiz performance. Use this information to focus your study efforts on areas that need improvement.*
-"""
-        
         print("Review generated successfully")
-        return gr.update(value=formatted_review, visible=True), gr.update(visible=True)
+        return gr.update(value=review, visible=True), gr.update(visible=True)
         
     except Exception as e:
         print(f"Error in handle_quiz_completion: {str(e)}")
@@ -681,9 +748,11 @@ def create_interface():
                 outputs=[questions_state, current_question, correct_answers, wrong_indices, loading_msg, regenerate_btn],
                 queue=True  # Enable queueing for streaming updates
             ).then(
-                lambda _: 0,  # Explicitly set current_question to 0
-                inputs=[questions_state],
+                lambda: 0,  # Reset current_question to 0
                 outputs=[current_question]
+            ).then(
+                lambda: 0,  # Reset total_questions to 0
+                outputs=[total_questions]
             ).then(
                 update_question,
                 inputs=[current_question, questions_state],
