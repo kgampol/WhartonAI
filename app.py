@@ -401,9 +401,9 @@ def create_interface():
             def handle_submit(question_index, selected_answer, questions, correct, total):
                 try:
                     if not questions or 'questions' not in questions:
-                        return "No questions available.", correct, total, gr.update(interactive=False), gr.update(value="", visible=False), gr.update(visible=False)
+                        return "No questions available.", correct, total, gr.update(interactive=False), gr.update(value="", visible=False), gr.update(visible=False), gr.update(visible=False)
                     if selected_answer is None:
-                        return "Please select an answer.", correct, total, gr.update(interactive=True), gr.update(value="", visible=False), gr.update(visible=False)
+                        return "Please select an answer.", correct, total, gr.update(interactive=True), gr.update(value="", visible=False), gr.update(visible=False), gr.update(visible=True)
                     
                     question = questions['questions'][question_index]
                     correct_answer_index = question['correct_answer']
@@ -426,11 +426,12 @@ def create_interface():
                         solution = gr.update(value="", visible=False)
                         generate_solution_btn = gr.update(visible=True)
                     
-                    return feedback_msg, new_correct, new_total, gr.update(interactive=False), solution, generate_solution_btn
+                    # Always disable submit button after first submission
+                    return feedback_msg, new_correct, new_total, gr.update(interactive=False), solution, generate_solution_btn, gr.update(visible=False)
                     
                 except Exception as e:
                     print(f"Error in handle_submit: {str(e)}")
-                    return f"Error checking answer: {str(e)}", correct, total, gr.update(interactive=True), gr.update(value="", visible=False), gr.update(visible=False)
+                    return f"Error checking answer: {str(e)}", correct, total, gr.update(interactive=True), gr.update(value="", visible=False), gr.update(visible=False), gr.update(visible=True)
                 
             def handle_next(question_index):
                 try:
@@ -470,7 +471,7 @@ def create_interface():
             submit_btn.click(
                 handle_submit,
                 inputs=[current_question, answer_choices, questions_state, correct_answers, total_questions],
-                outputs=[feedback, correct_answers, total_questions, answer_choices, solution, generate_solution_btn]
+                outputs=[feedback, correct_answers, total_questions, answer_choices, solution, generate_solution_btn, submit_btn]
             ).then(
                 update_performance_display,
                 inputs=[correct_answers, total_questions],
